@@ -40,6 +40,7 @@
 #include <std_msgs/String.h>
 
 #include "laser_geometry/laser_geometry.h"
+#include "geometry_msgs/Twist.h"
 #include "nav_msgs/GetMap.h"
 
 #include "slam_main/HectorSlamProcessor.h"
@@ -73,6 +74,7 @@ public:
 
   void scanCallback(const sensor_msgs::LaserScan& scan);
   void sysMsgCallback(const std_msgs::String& string);
+  void dPosCallback(const geometry_msgs::Twist& dpose);
 
   bool mapCallback(nav_msgs::GetMap::Request  &req, nav_msgs::GetMap::Response &res);
 
@@ -109,6 +111,8 @@ protected:
   message_filters::Subscriber<geometry_msgs::PoseWithCovarianceStamped>* initial_pose_sub_;
   tf::MessageFilter<geometry_msgs::PoseWithCovarianceStamped>* initial_pose_filter_;
 
+  ros::Subscriber delta_pose;
+
   ros::Publisher posePublisher_;
   ros::Publisher poseUpdatePublisher_;
   ros::Publisher twistUpdatePublisher_;
@@ -121,6 +125,7 @@ protected:
   tf::TransformBroadcaster* tfB_;
 
   laser_geometry::LaserProjection projector_;
+  geometry_msgs::Twist delta_pos;
 
   tf::Transform map_to_odom_;
 

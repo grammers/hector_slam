@@ -31,6 +31,7 @@
 #include "map/GridMap.h"
 
 #include <geometry_msgs/PoseWithCovarianceStamped.h>
+#include <geometry_msgs/Twist.h>
 #include <nav_msgs/Odometry.h>
 
 #include "sensor_msgs/PointCloud2.h"
@@ -78,299 +79,311 @@ HectorMappingRos::HectorMappingRos()
   private_nh_.param("sys_msg_topic", p_sys_msg_topic_, std::string("syscommand"));
   private_nh_.param("pose_update_topic", p_pose_update_topic_, std::string("poseupdate"));
 
-  private_nh_.param("use_tf_scan_transformation", p_use_tf_scan_transformation_,true);
-  private_nh_.param("use_tf_pose_start_estimate", p_use_tf_pose_start_estimate_,false);
-  private_nh_.param("map_with_known_poses", p_map_with_known_poses_, false);
-
-  private_nh_.param("base_frame", p_base_frame_, std::string("base_link"));
-  private_nh_.param("map_frame", p_map_frame_, std::string("map"));
-  private_nh_.param("odom_frame", p_odom_frame_, std::string("odom"));
-
-  private_nh_.param("pub_map_scanmatch_transform", p_pub_map_scanmatch_transform_,true);
-  private_nh_.param("tf_map_scanmatch_transform_frame_name", p_tf_map_scanmatch_transform_frame_name_, std::string("scanmatcher_frame"));
-
-  private_nh_.param("output_timing", p_timing_output_,false);
-
-  private_nh_.param("map_pub_period", p_map_pub_period_, 2.0);
-
-  double tmp = 0.0;
-  private_nh_.param("laser_min_dist", tmp, 0.4);
-  p_sqr_laser_min_dist_ = static_cast<float>(tmp*tmp);
-
-  private_nh_.param("laser_max_dist", tmp, 30.0);
-  p_sqr_laser_max_dist_ = static_cast<float>(tmp*tmp);
-
-  private_nh_.param("laser_z_min_value", tmp, -1.0);
-  p_laser_z_min_value_ = static_cast<float>(tmp);
+		  private_nh_.param("use_tf_scan_transformation", p_use_tf_scan_transformation_,true);
+		  private_nh_.param("use_tf_pose_start_estimate", p_use_tf_pose_start_estimate_,false);
+		  private_nh_.param("map_with_known_poses", p_map_with_known_poses_, false);
+
+		  private_nh_.param("base_frame", p_base_frame_, std::string("base_link"));
+		  private_nh_.param("map_frame", p_map_frame_, std::string("map"));
+		  private_nh_.param("odom_frame", p_odom_frame_, std::string("odom"));
+
+		  private_nh_.param("pub_map_scanmatch_transform", p_pub_map_scanmatch_transform_,true);
+		  private_nh_.param("tf_map_scanmatch_transform_frame_name", p_tf_map_scanmatch_transform_frame_name_, std::string("scanmatcher_frame"));
+
+		  private_nh_.param("output_timing", p_timing_output_,false);
+
+		  private_nh_.param("map_pub_period", p_map_pub_period_, 2.0);
+
+		  double tmp = 0.0;
+		  private_nh_.param("laser_min_dist", tmp, 0.4);
+		  p_sqr_laser_min_dist_ = static_cast<float>(tmp*tmp);
+
+		  private_nh_.param("laser_max_dist", tmp, 30.0);
+		  p_sqr_laser_max_dist_ = static_cast<float>(tmp*tmp);
+
+		  private_nh_.param("laser_z_min_value", tmp, -1.0);
+		  p_laser_z_min_value_ = static_cast<float>(tmp);
+
+		  private_nh_.param("laser_z_max_value", tmp, 1.0);
+		  p_laser_z_max_value_ = static_cast<float>(tmp);
 
-  private_nh_.param("laser_z_max_value", tmp, 1.0);
-  p_laser_z_max_value_ = static_cast<float>(tmp);
+		  if (p_pub_drawings)
+		  {
+			ROS_INFO("HectorSM publishing debug drawings");
+			hectorDrawings = new HectorDrawings();
+		  }
 
-  if (p_pub_drawings)
-  {
-    ROS_INFO("HectorSM publishing debug drawings");
-    hectorDrawings = new HectorDrawings();
-  }
+		  if(p_pub_debug_output_)
+		  {
+			ROS_INFO("HectorSM publishing debug info");
+			debugInfoProvider = new HectorDebugInfoProvider();
+		  }
 
-  if(p_pub_debug_output_)
-  {
-    ROS_INFO("HectorSM publishing debug info");
-    debugInfoProvider = new HectorDebugInfoProvider();
-  }
+		  if(p_pub_odometry_)
+		  {
+			odometryPublisher_ = node_.advertise<nav_msgs::Odometry>("scanmatch_odom", 50);
+		  }
 
-  if(p_pub_odometry_)
-  {
-    odometryPublisher_ = node_.advertise<nav_msgs::Odometry>("scanmatch_odom", 50);
-  }
+		  slamProcessor = new hectorslam::HectorSlamProcessor(static_cast<float>(p_map_resolution_), p_map_size_, p_map_size_, Eigen::Vector2f(p_map_start_x_, p_map_start_y_), p_map_multi_res_levels_, hectorDrawings, debugInfoProvider);
+		  slamProcessor->setUpdateFactorFree(p_update_factor_free_);
+		  slamProcessor->setUpdateFactorOccupied(p_update_factor_occupied_);
+		  slamProcessor->setMapUpdateMinDistDiff(p_map_update_distance_threshold_);
+		  slamProcessor->setMapUpdateMinAngleDiff(p_map_update_angle_threshold_);
 
-  slamProcessor = new hectorslam::HectorSlamProcessor(static_cast<float>(p_map_resolution_), p_map_size_, p_map_size_, Eigen::Vector2f(p_map_start_x_, p_map_start_y_), p_map_multi_res_levels_, hectorDrawings, debugInfoProvider);
-  slamProcessor->setUpdateFactorFree(p_update_factor_free_);
-  slamProcessor->setUpdateFactorOccupied(p_update_factor_occupied_);
-  slamProcessor->setMapUpdateMinDistDiff(p_map_update_distance_threshold_);
-  slamProcessor->setMapUpdateMinAngleDiff(p_map_update_angle_threshold_);
+		  int mapLevels = slamProcessor->getMapLevels();
+		  mapLevels = 1;
 
-  int mapLevels = slamProcessor->getMapLevels();
-  mapLevels = 1;
+		  for (int i = 0; i < mapLevels; ++i)
+		  {
+			mapPubContainer.push_back(MapPublisherContainer());
+			slamProcessor->addMapMutex(i, new HectorMapMutex());
 
-  for (int i = 0; i < mapLevels; ++i)
-  {
-    mapPubContainer.push_back(MapPublisherContainer());
-    slamProcessor->addMapMutex(i, new HectorMapMutex());
+			std::string mapTopicStr(mapTopic_);
 
-    std::string mapTopicStr(mapTopic_);
+			if (i != 0)
+			{
+			  mapTopicStr.append("_" + boost::lexical_cast<std::string>(i));
+			}
 
-    if (i != 0)
-    {
-      mapTopicStr.append("_" + boost::lexical_cast<std::string>(i));
-    }
-
-    std::string mapMetaTopicStr(mapTopicStr);
-    mapMetaTopicStr.append("_metadata");
+			std::string mapMetaTopicStr(mapTopicStr);
+			mapMetaTopicStr.append("_metadata");
 
-    MapPublisherContainer& tmp = mapPubContainer[i];
-    tmp.mapPublisher_ = node_.advertise<nav_msgs::OccupancyGrid>(mapTopicStr, 1, true);
-    tmp.mapMetadataPublisher_ = node_.advertise<nav_msgs::MapMetaData>(mapMetaTopicStr, 1, true);
-
-    if ( (i == 0) && p_advertise_map_service_)
-    {
-      tmp.dynamicMapServiceServer_ = node_.advertiseService("dynamic_map", &HectorMappingRos::mapCallback, this);
-    }
-
-    setServiceGetMapData(tmp.map_, slamProcessor->getGridMap(i));
-
-    if ( i== 0){
-      mapPubContainer[i].mapMetadataPublisher_.publish(mapPubContainer[i].map_.map.info);
-    }
-  }
+			MapPublisherContainer& tmp = mapPubContainer[i];
+			tmp.mapPublisher_ = node_.advertise<nav_msgs::OccupancyGrid>(mapTopicStr, 1, true);
+			tmp.mapMetadataPublisher_ = node_.advertise<nav_msgs::MapMetaData>(mapMetaTopicStr, 1, true);
 
-  ROS_INFO("HectorSM p_base_frame_: %s", p_base_frame_.c_str());
-  ROS_INFO("HectorSM p_map_frame_: %s", p_map_frame_.c_str());
-  ROS_INFO("HectorSM p_odom_frame_: %s", p_odom_frame_.c_str());
-  ROS_INFO("HectorSM p_scan_topic_: %s", p_scan_topic_.c_str());
-  ROS_INFO("HectorSM p_use_tf_scan_transformation_: %s", p_use_tf_scan_transformation_ ? ("true") : ("false"));
-  ROS_INFO("HectorSM p_pub_map_odom_transform_: %s", p_pub_map_odom_transform_ ? ("true") : ("false"));
-  ROS_INFO("HectorSM p_scan_subscriber_queue_size_: %d", p_scan_subscriber_queue_size_);
-  ROS_INFO("HectorSM p_map_pub_period_: %f", p_map_pub_period_);
-  ROS_INFO("HectorSM p_update_factor_free_: %f", p_update_factor_free_);
-  ROS_INFO("HectorSM p_update_factor_occupied_: %f", p_update_factor_occupied_);
-  ROS_INFO("HectorSM p_map_update_distance_threshold_: %f ", p_map_update_distance_threshold_);
-  ROS_INFO("HectorSM p_map_update_angle_threshold_: %f", p_map_update_angle_threshold_);
-  ROS_INFO("HectorSM p_laser_z_min_value_: %f", p_laser_z_min_value_);
-  ROS_INFO("HectorSM p_laser_z_max_value_: %f", p_laser_z_max_value_);
+			if ( (i == 0) && p_advertise_map_service_)
+			{
+			  tmp.dynamicMapServiceServer_ = node_.advertiseService("dynamic_map", &HectorMappingRos::mapCallback, this);
+			}
 
-  scanSubscriber_ = node_.subscribe(p_scan_topic_, p_scan_subscriber_queue_size_, &HectorMappingRos::scanCallback, this);
-  sysMsgSubscriber_ = node_.subscribe(p_sys_msg_topic_, 2, &HectorMappingRos::sysMsgCallback, this);
+			setServiceGetMapData(tmp.map_, slamProcessor->getGridMap(i));
 
-  poseUpdatePublisher_ = node_.advertise<geometry_msgs::PoseWithCovarianceStamped>(p_pose_update_topic_, 1, false);
-  posePublisher_ = node_.advertise<geometry_msgs::PoseStamped>("slam_out_pose", 1, false);
+			if ( i== 0){
+			  mapPubContainer[i].mapMetadataPublisher_.publish(mapPubContainer[i].map_.map.info);
+			}
+		  }
 
-  scan_point_cloud_publisher_ = node_.advertise<sensor_msgs::PointCloud>("slam_cloud",1,false);
+		  ROS_INFO("HectorSM p_base_frame_: %s", p_base_frame_.c_str());
+		  ROS_INFO("HectorSM p_map_frame_: %s", p_map_frame_.c_str());
+		  ROS_INFO("HectorSM p_odom_frame_: %s", p_odom_frame_.c_str());
+		  ROS_INFO("HectorSM p_scan_topic_: %s", p_scan_topic_.c_str());
+		  ROS_INFO("HectorSM p_use_tf_scan_transformation_: %s", p_use_tf_scan_transformation_ ? ("true") : ("false"));
+		  ROS_INFO("HectorSM p_pub_map_odom_transform_: %s", p_pub_map_odom_transform_ ? ("true") : ("false"));
+		  ROS_INFO("HectorSM p_scan_subscriber_queue_size_: %d", p_scan_subscriber_queue_size_);
+		  ROS_INFO("HectorSM p_map_pub_period_: %f", p_map_pub_period_);
+		  ROS_INFO("HectorSM p_update_factor_free_: %f", p_update_factor_free_);
+		  ROS_INFO("HectorSM p_update_factor_occupied_: %f", p_update_factor_occupied_);
+		  ROS_INFO("HectorSM p_map_update_distance_threshold_: %f ", p_map_update_distance_threshold_);
+		  ROS_INFO("HectorSM p_map_update_angle_threshold_: %f", p_map_update_angle_threshold_);
+		  ROS_INFO("HectorSM p_laser_z_min_value_: %f", p_laser_z_min_value_);
+		  ROS_INFO("HectorSM p_laser_z_max_value_: %f", p_laser_z_max_value_);
 
-  tfB_ = new tf::TransformBroadcaster();
-  ROS_ASSERT(tfB_);
+		  scanSubscriber_ = node_.subscribe(p_scan_topic_, p_scan_subscriber_queue_size_, &HectorMappingRos::scanCallback, this);
+		  sysMsgSubscriber_ = node_.subscribe(p_sys_msg_topic_, 2, &HectorMappingRos::sysMsgCallback, this);
+		  delta_pose = node_.subscribe("d_pose", 1, &HectorMappingRos::dPosCallback, this);
 
-  /*
-  bool p_use_static_map_ = false;
+		  poseUpdatePublisher_ = node_.advertise<geometry_msgs::PoseWithCovarianceStamped>(p_pose_update_topic_, 1, false);
+		  posePublisher_ = node_.advertise<geometry_msgs::PoseStamped>("slam_out_pose", 1, false);
 
-  if (p_use_static_map_){
-    mapSubscriber_ = node_.subscribe(mapTopic_, 1, &HectorMappingRos::staticMapCallback, this);
-  }
-  */
+		  scan_point_cloud_publisher_ = node_.advertise<sensor_msgs::PointCloud>("slam_cloud",1,false);
 
-  initial_pose_sub_ = new message_filters::Subscriber<geometry_msgs::PoseWithCovarianceStamped>(node_, "initialpose", 2);
-  initial_pose_filter_ = new tf::MessageFilter<geometry_msgs::PoseWithCovarianceStamped>(*initial_pose_sub_, tf_, p_map_frame_, 2);
-  initial_pose_filter_->registerCallback(boost::bind(&HectorMappingRos::initialPoseCallback, this, _1));
+		  tfB_ = new tf::TransformBroadcaster();
+		  ROS_ASSERT(tfB_);
 
+		  /*
+		  bool p_use_static_map_ = false;
 
-  map__publish_thread_ = new boost::thread(boost::bind(&HectorMappingRos::publishMapLoop, this, p_map_pub_period_));
+		  if (p_use_static_map_){
+			mapSubscriber_ = node_.subscribe(mapTopic_, 1, &HectorMappingRos::staticMapCallback, this);
+		  }
+		  */
 
-  map_to_odom_.setIdentity();
+		  initial_pose_sub_ = new message_filters::Subscriber<geometry_msgs::PoseWithCovarianceStamped>(node_, "initialpose", 2);
+		  initial_pose_filter_ = new tf::MessageFilter<geometry_msgs::PoseWithCovarianceStamped>(*initial_pose_sub_, tf_, p_map_frame_, 2);
+		  initial_pose_filter_->registerCallback(boost::bind(&HectorMappingRos::initialPoseCallback, this, _1));
 
-  lastMapPublishTime = ros::Time(0,0);
-}
-
-HectorMappingRos::~HectorMappingRos()
-{
-  delete slamProcessor;
-
-  if (hectorDrawings)
-    delete hectorDrawings;
-
-  if (debugInfoProvider)
-    delete debugInfoProvider;
 
-  if (tfB_)
-    delete tfB_;
+		  map__publish_thread_ = new boost::thread(boost::bind(&HectorMappingRos::publishMapLoop, this, p_map_pub_period_));
 
-  if(map__publish_thread_)
-    delete map__publish_thread_;
-}
+		  map_to_odom_.setIdentity();
 
-void HectorMappingRos::scanCallback(const sensor_msgs::LaserScan& scan)
-{
-  if (hectorDrawings)
-  {
-    hectorDrawings->setTime(scan.header.stamp);
-  }
-
-  ros::WallTime startTime = ros::WallTime::now();
+		  lastMapPublishTime = ros::Time(0,0);
+		}
 
-  if (!p_use_tf_scan_transformation_)
-  {
-    if (rosLaserScanToDataContainer(scan, laserScanContainer,slamProcessor->getScaleToMap()))
-    {
-      slamProcessor->update(laserScanContainer,slamProcessor->getLastScanMatchPose());
-    }
-  }
-  else
-  {
-    ros::Duration dur (0.5);
-
-    if (tf_.waitForTransform(p_base_frame_,scan.header.frame_id, scan.header.stamp,dur))
-    {
-      tf::StampedTransform laserTransform;
-      tf_.lookupTransform(p_base_frame_,scan.header.frame_id, scan.header.stamp, laserTransform);
-
-      //projector_.transformLaserScanToPointCloud(p_base_frame_ ,scan, pointCloud,tf_);
-      projector_.projectLaser(scan, laser_point_cloud_,30.0);
-
-      if (scan_point_cloud_publisher_.getNumSubscribers() > 0){
-        scan_point_cloud_publisher_.publish(laser_point_cloud_);
-      }
-
-      Eigen::Vector3f startEstimate(Eigen::Vector3f::Zero());
-
-      if(rosPointCloudToDataContainer(laser_point_cloud_, laserTransform, laserScanContainer, slamProcessor->getScaleToMap()))
-      {
-        if (initial_pose_set_){
-          initial_pose_set_ = false;
-          startEstimate = initial_pose_;
-        }else if (p_use_tf_pose_start_estimate_){
-
-          try
-          {
-            tf::StampedTransform stamped_pose;
-
-            tf_.waitForTransform(p_map_frame_,p_base_frame_, scan.header.stamp, ros::Duration(0.5));
-            tf_.lookupTransform(p_map_frame_, p_base_frame_,  scan.header.stamp, stamped_pose);
-
-            tfScalar yaw, pitch, roll;
-            stamped_pose.getBasis().getEulerYPR(yaw, pitch, roll);
-
-            startEstimate = Eigen::Vector3f(stamped_pose.getOrigin().getX(),stamped_pose.getOrigin().getY(), yaw);
-          }
-          catch(tf::TransformException e)
-          {
-            ROS_ERROR("Transform from %s to %s failed\n", p_map_frame_.c_str(), p_base_frame_.c_str());
-            startEstimate = slamProcessor->getLastScanMatchPose();
-          }
-
-        }else{
-          startEstimate = slamProcessor->getLastScanMatchPose();
-        }
-
-
-        if (p_map_with_known_poses_){
-          slamProcessor->update(laserScanContainer, startEstimate, true);
-        }else{
-          slamProcessor->update(laserScanContainer, startEstimate);
-        }
-      }
-
-    }else{
-      ROS_INFO("lookupTransform %s to %s timed out. Could not transform laser scan into base_frame.", p_base_frame_.c_str(), scan.header.frame_id.c_str());
-      return;
-    }
-  }
-
-  if (p_timing_output_)
-  {
-    ros::WallDuration duration = ros::WallTime::now() - startTime;
-    ROS_INFO("HectorSLAM Iter took: %f milliseconds", duration.toSec()*1000.0f );
-  }
-
-  //If we're just building a map with known poses, we're finished now. Code below this point publishes the localization results.
-  if (p_map_with_known_poses_)
-  {
-    return;
-  }
-
-  poseInfoContainer_.update(slamProcessor->getLastScanMatchPose(), slamProcessor->getLastScanMatchCovariance(), scan.header.stamp, p_map_frame_);
-
-  poseUpdatePublisher_.publish(poseInfoContainer_.getPoseWithCovarianceStamped());
-  posePublisher_.publish(poseInfoContainer_.getPoseStamped());
-
-  if(p_pub_odometry_)
-  {
-    nav_msgs::Odometry tmp;
-    tmp.pose = poseInfoContainer_.getPoseWithCovarianceStamped().pose;
-
-    tmp.header = poseInfoContainer_.getPoseWithCovarianceStamped().header;
-    tmp.child_frame_id = p_base_frame_;
-    odometryPublisher_.publish(tmp);
-  }
-
-  if (p_pub_map_odom_transform_)
-  {
-    tf::StampedTransform odom_to_base;
-
-    try
-    {
-      tf_.waitForTransform(p_odom_frame_, p_base_frame_, scan.header.stamp, ros::Duration(0.5));
-      tf_.lookupTransform(p_odom_frame_, p_base_frame_, scan.header.stamp, odom_to_base);
-    }
-    catch(tf::TransformException e)
-    {
-      ROS_ERROR("Transform failed during publishing of map_odom transform: %s",e.what());
-      odom_to_base.setIdentity();
-    }
-    map_to_odom_ = tf::Transform(poseInfoContainer_.getTfTransform() * odom_to_base.inverse());
-    tfB_->sendTransform( tf::StampedTransform (map_to_odom_, scan.header.stamp, p_map_frame_, p_odom_frame_));
-  }
-
-  if (p_pub_map_scanmatch_transform_){
-    tfB_->sendTransform( tf::StampedTransform(poseInfoContainer_.getTfTransform(), scan.header.stamp, p_map_frame_, p_tf_map_scanmatch_transform_frame_name_));
-  }
-}
-
-void HectorMappingRos::sysMsgCallback(const std_msgs::String& string)
-{
-  ROS_INFO("HectorSM sysMsgCallback, msg contents: %s", string.data.c_str());
-
-  if (string.data == "reset")
-  {
-    ROS_INFO("HectorSM reset");
-    slamProcessor->reset();
-  }
-}
-
-bool HectorMappingRos::mapCallback(nav_msgs::GetMap::Request  &req,
-                                   nav_msgs::GetMap::Response &res)
-{
-  ROS_INFO("HectorSM Map service called");
-  res = mapPubContainer[0].map_;
-  return true;
-}
+		HectorMappingRos::~HectorMappingRos()
+		{
+		  delete slamProcessor;
+
+		  if (hectorDrawings)
+			delete hectorDrawings;
+
+		  if (debugInfoProvider)
+			delete debugInfoProvider;
+
+		  if (tfB_)
+			delete tfB_;
+
+		  if(map__publish_thread_)
+			delete map__publish_thread_;
+		}
+
+		void HectorMappingRos::scanCallback(const sensor_msgs::LaserScan& scan)
+		{
+		  if (hectorDrawings)
+		  {
+			hectorDrawings->setTime(scan.header.stamp);
+		  }
+
+		  ros::WallTime startTime = ros::WallTime::now();
+
+		  if (!p_use_tf_scan_transformation_)
+		  {
+			if (rosLaserScanToDataContainer(scan, laserScanContainer,slamProcessor->getScaleToMap()))
+			{
+			  Eigen::Vector3f startEstimate = slamProcessor->getLastScanMatchPose();
+
+			  startEstimate[0] += delta_pos.linear.x / 50;	  
+			  startEstimate[1] += delta_pos.linear.y / 50;	  
+			  startEstimate[2] += delta_pos.angular.z / 50;	  
+
+
+			  slamProcessor->update(laserScanContainer, startEstimate);
+			}
+		  }
+		  else
+		  {
+			ros::Duration dur (0.5);
+
+			if (tf_.waitForTransform(p_base_frame_,scan.header.frame_id, scan.header.stamp,dur))
+			{
+			  tf::StampedTransform laserTransform;
+			  tf_.lookupTransform(p_base_frame_,scan.header.frame_id, scan.header.stamp, laserTransform);
+
+			  //projector_.transformLaserScanToPointCloud(p_base_frame_ ,scan, pointCloud,tf_);
+			  projector_.projectLaser(scan, laser_point_cloud_,30.0);
+
+			  if (scan_point_cloud_publisher_.getNumSubscribers() > 0){
+				scan_point_cloud_publisher_.publish(laser_point_cloud_);
+			  }
+
+			  Eigen::Vector3f startEstimate(Eigen::Vector3f::Zero());
+
+			  if(rosPointCloudToDataContainer(laser_point_cloud_, laserTransform, laserScanContainer, slamProcessor->getScaleToMap()))
+			  {
+				if (initial_pose_set_){
+				  initial_pose_set_ = false;
+				  startEstimate = initial_pose_;
+				}else if (p_use_tf_pose_start_estimate_){
+
+				  try
+				  {
+					tf::StampedTransform stamped_pose;
+
+					tf_.waitForTransform(p_map_frame_,p_base_frame_, scan.header.stamp, ros::Duration(0.5));
+					tf_.lookupTransform(p_map_frame_, p_base_frame_,  scan.header.stamp, stamped_pose);
+
+					tfScalar yaw, pitch, roll;
+					stamped_pose.getBasis().getEulerYPR(yaw, pitch, roll);
+
+					startEstimate = Eigen::Vector3f(stamped_pose.getOrigin().getX(),stamped_pose.getOrigin().getY(), yaw);
+				  }
+				  catch(tf::TransformException e)
+				  {
+					ROS_ERROR("Transform from %s to %s failed\n", p_map_frame_.c_str(), p_base_frame_.c_str());
+					startEstimate = slamProcessor->getLastScanMatchPose();
+				  }
+
+				}else{
+				  startEstimate = slamProcessor->getLastScanMatchPose();
+				}
+
+				ROS_ERROR("startEstimet: %f %f %f", startEstimate[0], startEstimate[1], startEstimate[2]);
+				if (p_map_with_known_poses_){
+				  slamProcessor->update(laserScanContainer, startEstimate, true);
+				}else{
+				  slamProcessor->update(laserScanContainer, startEstimate);
+				}
+			  }
+
+			}else{
+			  ROS_INFO("lookupTransform %s to %s timed out. Could not transform laser scan into base_frame.", p_base_frame_.c_str(), scan.header.frame_id.c_str());
+			  return;
+			}
+		  }
+
+		  if (p_timing_output_)
+		  {
+			ros::WallDuration duration = ros::WallTime::now() - startTime;
+			ROS_INFO("HectorSLAM Iter took: %f milliseconds", duration.toSec()*1000.0f );
+		  }
+
+		  //If we're just building a map with known poses, we're finished now. Code below this point publishes the localization results.
+		  if (p_map_with_known_poses_)
+		  {
+			return;
+		  }
+
+		  poseInfoContainer_.update(slamProcessor->getLastScanMatchPose(), slamProcessor->getLastScanMatchCovariance(), scan.header.stamp, p_map_frame_);
+
+		  poseUpdatePublisher_.publish(poseInfoContainer_.getPoseWithCovarianceStamped());
+		  posePublisher_.publish(poseInfoContainer_.getPoseStamped());
+
+		  if(p_pub_odometry_)
+		  {
+			nav_msgs::Odometry tmp;
+			tmp.pose = poseInfoContainer_.getPoseWithCovarianceStamped().pose;
+
+			tmp.header = poseInfoContainer_.getPoseWithCovarianceStamped().header;
+			tmp.child_frame_id = p_base_frame_;
+			odometryPublisher_.publish(tmp);
+		  }
+
+		  if (p_pub_map_odom_transform_)
+		  {
+			tf::StampedTransform odom_to_base;
+
+			try
+			{
+			  tf_.waitForTransform(p_odom_frame_, p_base_frame_, scan.header.stamp, ros::Duration(0.5));
+			  tf_.lookupTransform(p_odom_frame_, p_base_frame_, scan.header.stamp, odom_to_base);
+			}
+			catch(tf::TransformException e)
+			{
+			  ROS_ERROR("Transform failed during publishing of map_odom transform: %s",e.what());
+			  odom_to_base.setIdentity();
+			}
+			map_to_odom_ = tf::Transform(poseInfoContainer_.getTfTransform() * odom_to_base.inverse());
+			tfB_->sendTransform( tf::StampedTransform (map_to_odom_, scan.header.stamp, p_map_frame_, p_odom_frame_));
+		  }
+
+		  if (p_pub_map_scanmatch_transform_){
+			tfB_->sendTransform( tf::StampedTransform(poseInfoContainer_.getTfTransform(), scan.header.stamp, p_map_frame_, p_tf_map_scanmatch_transform_frame_name_));
+		  }
+		}
+
+		void HectorMappingRos::sysMsgCallback(const std_msgs::String& string)
+		{
+		  ROS_INFO("HectorSM sysMsgCallback, msg contents: %s", string.data.c_str());
+
+		  if (string.data == "reset")
+		  {
+			ROS_INFO("HectorSM reset");
+			slamProcessor->reset();
+		  }
+		}
+
+		bool HectorMappingRos::mapCallback(nav_msgs::GetMap::Request  &req,
+										   nav_msgs::GetMap::Response &res)
+		{
+		  ROS_INFO("HectorSM Map service called");
+		  res = mapPubContainer[0].map_;
+		  return true;
+		}
+
+		void HectorMappingRos::dPosCallback(const geometry_msgs::Twist& dpose){
+		  delta_pos = dpose;
+		}
 
 void HectorMappingRos::publishMap(MapPublisherContainer& mapPublisher, const hectorslam::GridMap& gridMap, ros::Time timestamp, MapLockerInterface* mapMutex)
 {

@@ -205,12 +205,14 @@ protected:
       Eigen::Vector3f searchDir (H.inverse() * dTr);
 
       //std::cout << "\nsearchdir\n" << searchDir  << "\n";
-
-      if (searchDir[2] > 0.2f) {
-        searchDir[2] = 0.2f;
+      //std::cout << "\nestimate\n" << estimate  << "\n";
+	  
+	  float maxAngleChange = 0.2;
+      if (searchDir[2] > maxAngleChange ){
+        searchDir[2] = maxAngleChange ;
         std::cout << "SearchDir angle change too large\n";
-      } else if (searchDir[2] < -0.2f) {
-        searchDir[2] = -0.2f;
+      } else if (searchDir[2] < -maxAngleChange ) {
+        searchDir[2] = -maxAngleChange ;
         std::cout << "SearchDir angle change too large\n";
       }
 

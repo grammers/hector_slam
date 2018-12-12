@@ -95,10 +95,10 @@ HectorMappingRos::HectorMappingRos()
 		  private_nh_.param("map_pub_period", p_map_pub_period_, 2.0);
 
 		  double tmp = 0.0;
-		  private_nh_.param("laser_min_dist", tmp, 0.4);
+		  private_nh_.param("laser_min_dist", tmp, 0.1);
 		  p_sqr_laser_min_dist_ = static_cast<float>(tmp*tmp);
 
-		  private_nh_.param("laser_max_dist", tmp, 30.0);
+		  private_nh_.param("laser_max_dist", tmp, 25.0);
 		  p_sqr_laser_max_dist_ = static_cast<float>(tmp*tmp);
 
 		  private_nh_.param("laser_z_min_value", tmp, -1.0);
@@ -243,9 +243,9 @@ HectorMappingRos::HectorMappingRos()
 			{
 			  Eigen::Vector3f startEstimate = slamProcessor->getLastScanMatchPose();
 
-			  startEstimate[0] += delta_pos.linear.x / 50;	  
-			  startEstimate[1] += delta_pos.linear.y / 50;	  
-			  startEstimate[2] += delta_pos.angular.z / 50;	  
+			  //startEstimate[0] += delta_pos.linear.x / 50;	  
+			  //startEstimate[1] += delta_pos.linear.y / 50;	  
+			  //startEstimate[2] += delta_pos.angular.z / 50;	  
 
 
 			  slamProcessor->update(laserScanContainer, startEstimate);
